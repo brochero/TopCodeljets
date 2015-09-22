@@ -45,9 +45,9 @@ Before to run this code, it is important to clarify:
     -h                 displays this help message and exits 
    ``` 
 
-3. Output: The output can be dicided in two parts: screen and histos.
+3. Output: The output can be divided in two parts: screen and histos.
 
-   a. Screen: Contains information about sample, running time, yield and output.
+   a. Screen: It contains information about sample, running time, yield and output.
    ```
    ./TreeReader.run -i Tree_LepJets_v7-3-6_Spring15-bx50_40pb-1_WJets -o NewPlots_v0
    ---------------------------------------------------------------------------------
@@ -87,3 +87,29 @@ Before to run this code, it is important to clarify:
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    File saved as TopResults/hSF-NewPlots_v0_Tree_LepJets_v7-3-6_Spring15-bx50_40pb-1_WJets.root
    ```
+
+   b. Histograms: The output contains the histograms for 2 channels (*mu+jets* and *e+jets*) and 4 different cut levels (*lepton*, *4Jets*, *MET* and *2btag*). The name structure is:
+
+   `h`"VariableName"`_`"Channel"_`Cut`
+
+   **Example**
+   ```
+   hLepPhi_ejets_lepton
+   hNBtagJets_mujets_4Jets
+   hSFTrigger_ejets_MET
+   hNJets_mujets_2btag
+   ```
+
+4. Produce final plots.
+   a. Change the directory and the base of the files name in `Plots.h`
+   ```
+   TString dirnameIn= "/home/brochero/ttbar/TopCodeljets/TopResults/";
+   TString fl  = "hSF-NewPlots_v0_Tree_LepJets_v7-3-6_Spring15-bx50_40pb-1";
+   ```	
+   b. Run Plots.C
+   ```
+   root -l -b -q 'Plots.C("CutLevel")'
+   ```	
+   Where cut level can be *lepton*, *4Jets*, *MET* and *2btag*
+
+   The final plots will be created as pdf files.
