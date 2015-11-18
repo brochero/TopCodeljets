@@ -33,7 +33,8 @@
 #include <sys/stat.h>
 
 // TopCode
-#include <SFIDISOTrigger.h> //SF_ID-ISO-Trigger
+#include <SFIDISOTrigger.h> // SF_ID-ISO-Trigger
+#include <ttbar_category.h> // Event Categorization
 
 #ifndef __CINT__
 
@@ -47,6 +48,7 @@ void display_usage()
   std::cout << "    -s create a file with the systematic uncertainty yields" << std::endl;
   std::cout << "    -tr SF Trigger Uncertainty" << std::endl;
   std::cout << "    -idiso SF ID/ISO Uncertainty" << std::endl;
+  std::cout << "    -cat ttbar categorization" << std::endl;
   std::cout << "    -d Input file directory. Default directory: InputTrees" << std::endl;
   std::cout << "    -h                 displays this help message and exits " << std::endl;
   std::cout << "" << std::endl;
@@ -91,15 +93,17 @@ int main(int argc, const char* argv[]){
 
   gSystem->Load("libTree");
 
+  bool   _ttbar_cat = false;
   bool   _syst      = false;
   bool	 _tr_unc    = false;
   bool	 _idiso_unc = false;
   const char * _output   = 0;
   const char * _input    = 0;
   // TopTrees directory
-  const char * _dir      = "/home/brochero/ttbar/TopTrees_CATuples/v7-3-6/";
+  const char * _dir      = "/cms/home/brochero/CATTuples_Nov/cattools/src/CATTools/CatAnalyzer/prod/Files_v7-4-4/";
   const char * _tr       = 0;
   const char * _idiso    = 0;
+  const char * _ttbar_id = 0;
 
   // Arguments used
   //std::set<int> usedargs;
@@ -137,6 +141,11 @@ int main(int argc, const char* argv[]){
 	  _idiso= argv[i+1];
 	  i++;
 	}
+	if( strcmp(argv[i],"-cat") == 0 ){
+	  _ttbar_cat = true;
+	  _ttbar_id  = argv[i+1];
+	  i++;
+	}
 	if( strcmp(argv[i],"-h") == 0 ||
 	    strcmp(argv[i],"--help") == 0 ){
 	  display_usage();
@@ -157,8 +166,10 @@ int main(int argc, const char* argv[]){
   TString fdir(_dir);
   TString TrUnc(_tr);
   TString IDISOUnc(_idiso);
+  TString ttbar_id(_ttbar_id);
   
-  TChain theTree("ttbarSingleLepton/vallot"); 
+  //TChain theTree("ttbarSingleLepton/vallot"); 
+  TChain theTree("ttbarSingleLepton/tree"); 
   
   std::cout << "---------------------------------------------------------------------------------" << std::endl;
   std::cout << "Signal: ";
@@ -166,8 +177,8 @@ int main(int argc, const char* argv[]){
 
   theTree.Add(fdir + fname + ".root");
   
-  int Event,Run,Channel,GoodPV;
-  float PUWeight; 
+  int Event,Run,Channel, GenCat_ID, GoodPV;
+  float PUWeight, GENWeight; 
 
   float MET,MET_Phi;
 
@@ -181,8 +192,9 @@ int main(int argc, const char* argv[]){
   
   theTree.SetBranchAddress( "event",    &Event );
   theTree.SetBranchAddress( "run",      &Run );
-  theTree.SetBranchAddress( "PUWeight", &PUWeight );
-  theTree.SetBranchAddress( "channel",  &Channel );
+
+  theTree.SetBranchAddress( "PUWeight",  &PUWeight );
+  theTree.SetBranchAddress( "channel",   &Channel );
 
   theTree.SetBranchAddress( "GoodPV",  &GoodPV );
 
@@ -200,7 +212,31 @@ int main(int argc, const char* argv[]){
   theTree.SetBranchAddress( "jet_E",  &Jet_E );
 
   theTree.SetBranchAddress( "jet_CSV",  &Jet_CSV );
-  
+
+  // Number of Events and Weights (MC@NLO)
+  TFile *fileEntries = NULL;
+  fileEntries = TFile::Open(fdir + fname + ".root");
+  TH1F *h_NumberEvt;
+  h_NumberEvt = (TH1F*)fileEntries->Get("ttbarSingleLepton/EventInfo");
+
+  float NTotal_Event, NTotal_Weight, nNorm_Event;
+  NTotal_Event  = h_NumberEvt->GetBinContent(1);
+  NTotal_Weight = h_NumberEvt->GetBinContent(2);
+
+  // MCatNLO Weights
+  if(fname.Contains("MCatNLO")){
+    theTree.SetBranchAddress( "genweight", &GENWeight );
+    nNorm_Event = NTotal_Weight;    
+  }
+  else{
+    GENWeight = 1.0;
+    nNorm_Event = NTotal_Event;
+  }
+
+  // ttbar event categorization
+  if(fname.Contains("ttbar") && !fname.Contains("Bkg"))  theTree.SetBranchAddress( "gencatid",   &GenCat_ID );
+  else GenCat_ID = 1;
+    
   /*********************************
              Histograms
   **********************************/
@@ -218,6 +254,9 @@ int main(int argc, const char* argv[]){
 
   TH1F *hSFIDISO[4][2], *hSFIDISOError[4][2];
   TH1F *hSFTrigger[4][2], *hSFTriggerError[4][2];
+
+  TH1F *hEvtCatego[4][2];
+
  
   TString namech[2];
   namech[0]="mujets";
@@ -296,6 +335,10 @@ int main(int argc, const char* argv[]){
 	CSV[ij][j][i]         = new TH1F("hCSV_" + jetn[ij] + "_" + namech[i] + "_" + namecut[j],"CSV " + jetn[ij] + " " + titlenamech[i],20,0,1);
       CSV[ij][j][i]->GetXaxis()->SetTitle("CSVv2");      
       }
+
+      hEvtCatego[j][i]  = new TH1F("hEvtCatego_"+namech[i]+"_"+namecut[j],"ttbar Event Categorization " + titlenamech[i],4,-0.5,3.5);
+      hEvtCatego[j][i]->GetXaxis()->SetTitle("ttbar");      
+
     }//for(i)
   }//for(j)
   
@@ -313,7 +356,7 @@ int main(int argc, const char* argv[]){
      SF Parametrization
   *************************/
 
-  TString fSFdir = "/home/brochero/ttbar/TopTrees_CATuples/ScaleFactors/";
+  TString fSFdir = "/cms/home/brochero/ScaleFactors/";
   
   TH2F *hmuIDISOSF, *hmuTriggerSF;
   TH2F *heIDISOSF,  *heTriggerSF;
@@ -373,28 +416,40 @@ int main(int argc, const char* argv[]){
     Normalization Weights
   *************************/
   
-  float Lumi=41.635970084; //pb-1 From the JSON file Cert_246908-251883_13TeV_PromptReco_Collisions15_JSON_v2.txt
+  float Lumi=1280.23; //pb-1 From the JSON file Cert_246908-258750_13TeV_PromptReco_Collisions15_25ns_JSON.txt
   float NormWeight = 0.0;
   // NormWeight = Lumi*(1.0/N_Gen_events)*(Xsec)*(Br)
   
-  if(fname.Contains("QCD-MuEnr"))      NormWeight = Lumi * (1.0/13227148.0)  * (720648000.0) * (0.00042);   // [pb] (cross section) * (Filter Eff)
-  if(fname.Contains("ZJets"))          NormWeight = Lumi * (1.0/19925500.0)  * (6025.2);  // [pb]
-  if(fname.Contains("WJets"))          NormWeight = Lumi * (1.0/24089991.0)  * (61526.7); // [pb]
-  if(fname.Contains("tW"))             NormWeight = Lumi * (1.0/998400.0)    * (35.6);    // [pb]
-  if(fname.Contains("tbarW"))          NormWeight = Lumi * (1.0/1000000.0)   * (35.6);    // [pb]
-  if(fname.Contains("t-tchannel"))     NormWeight = Lumi * (1.0/1273800.0)   * (136.02);  // [pb]
-  if(fname.Contains("tbar-tchannel"))  NormWeight = Lumi * (1.0/681900.0)    * (80.95);   // [pb]
-  if(fname.Contains("WW"))             NormWeight = Lumi * (1.0/989608.0)    * (110.8);   // [pb]
-  if(fname.Contains("WZ"))             NormWeight = Lumi * (1.0/996920.0)    * (66.1);    // [pb]
-  if(fname.Contains("ZZ"))             NormWeight = Lumi * (1.0/998848.0)    * (15.4);    // [pb]
-  if(fname.Contains("ttbar-PowhegPythia")) NormWeight = Lumi * (1.0/19665194.0) * (831.76); // [pb] Br = (leptonic) * Hadronic = (0.1086*3) * (0.67)
-  if(fname.Contains("ttbar-MCatNLO"))      NormWeight = Lumi * (1.0/4994250.0) * (831.76);// * (0.1086*3.0*3.0); // Br correction  
-  if(fname.Contains("ttbar-Madgraph"))     NormWeight = Lumi * (1.0/4992231.0) * (831.76); 
+  if(fname.Contains("QCD_MuEnr_20to30"))     NormWeight = Lumi * (1.0/nNorm_Event) * (558528000.0) * (0.0053);   // [pb] (cross section) * (Filter Eff)
+  if(fname.Contains("QCD_MuEnr_50to80"))     NormWeight = Lumi * (1.0/nNorm_Event) * (19222500.0) * (0.02276);   // [pb] (cross section) * (Filter Eff)
+  if(fname.Contains("QCD_MuEnr_80to120"))    NormWeight = Lumi * (1.0/nNorm_Event) * (2758420.0) * (0.03844);   // [pb] (cross section) * (Filter Eff)
+  if(fname.Contains("QCD_MuEnr_120to170"))   NormWeight = Lumi * (1.0/nNorm_Event) * (469797.0) * (0.05362);   // [pb] (cross section) * (Filter Eff)
+  if(fname.Contains("QCD_MuEnr_170to300"))   NormWeight = Lumi * (1.0/nNorm_Event) * (117989.0) * (0.07335);   // [pb] (cross section) * (Filter Eff)
+  if(fname.Contains("QCD_MuEnr_300to470"))   NormWeight = Lumi * (1.0/nNorm_Event) * (7820.25) * (0.10196);   // [pb] (cross section) * (Filter Eff)
+  if(fname.Contains("QCD_MuEnr_470to600"))   NormWeight = Lumi * (1.0/nNorm_Event) * (645.528) * (0.12242);   // [pb] (cross section) * (Filter Eff)
+  if(fname.Contains("QCD_MuEnr_800to1000"))  NormWeight = Lumi * (1.0/nNorm_Event) * (32.3486) * (0.14552);   // [pb] (cross section) * (Filter Eff)
+  if(fname.Contains("QCD_MuEnr_1000toInf"))  NormWeight = Lumi * (1.0/nNorm_Event) * (10.4305) * (0.15544);   // [pb] (cross section) * (Filter Eff)
 
-  if(fname.Contains("Data"))               NormWeight = 1.0;
-  
+  if(fname.Contains("ZJets_M_50"))     NormWeight = Lumi * (1.0/nNorm_Event) * (6025.2);  // [pb]
+  if(fname.Contains("ZJets_M_10to50")) NormWeight = Lumi * (1.0/nNorm_Event) * (18271.92);// [pb]
+  if(fname.Contains("WJets"))          NormWeight = Lumi * (1.0/nNorm_Event) * (61526.7); // [pb]
+  if(fname.Contains("tW"))             NormWeight = Lumi * (1.0/nNorm_Event) * (35.6);    // [pb]
+  if(fname.Contains("tbarW"))          NormWeight = Lumi * (1.0/nNorm_Event) * (35.6);    // [pb]
+  if(fname.Contains("t_tchannel"))     NormWeight = Lumi * (1.0/nNorm_Event) * (136.02);  // [pb]
+  if(fname.Contains("tbar_tchannel"))  NormWeight = Lumi * (1.0/nNorm_Event) * (80.95);   // [pb]
+  if(fname.Contains("WW"))             NormWeight = Lumi * (1.0/nNorm_Event) * (110.8);   // [pb]
+  if(fname.Contains("WZ"))             NormWeight = Lumi * (1.0/nNorm_Event) * (66.1);    // [pb]
+  if(fname.Contains("ZZ"))             NormWeight = Lumi * (1.0/nNorm_Event) * (15.4);    // [pb]
+
+  if(fname.Contains("ttbar_PowhegPythia")) NormWeight = Lumi * (1.0/nNorm_Event) * (831.76); // [pb] Br = (leptonic) * Hadronic = (0.1086*3) * (0.67)
+  if(fname.Contains("ttbar_MCatNLO"))      NormWeight = Lumi * (1.0/nNorm_Event) * (831.76); // * (0.1086*3.0*3.0); // Br correction  
+  if(fname.Contains("ttbar_Madgraph"))     NormWeight = Lumi * (1.0/nNorm_Event) * (831.76); //
+
+  if(fname.Contains("Data"))               NormWeight = 1.0;  
+
   std::cout << "-----------------------                                 -------------------------" << std::endl;
-  std::cout << "Normalization Factor = " << NormWeight << std::endl;
+  std::cout << "Number of Events     = " << nNorm_Event << std::endl;
+  std::cout << "Normalization Factor = " << NormWeight  << std::endl;
   std::cout << "---------------------------------------------------------------------------------" << std::endl;
 
   /********************************
@@ -426,6 +481,11 @@ int main(int argc, const char* argv[]){
   if(SF_n != 0.0) SF_pT_TotalMean = SF_pT_TotalMean/SF_n; 
   
 
+  /***************************
+     ttbar Categorization
+  ***************************/
+  if(_ttbar_cat) fname += ttbar_id; // add in the sample name the ttbar category
+
   /********************************
              Event Loop
   ********************************/
@@ -436,48 +496,12 @@ int main(int argc, const char* argv[]){
     theTree.GetEntry(ievt);  
     print_progress(theTree.GetEntries(), ievt);
 
-    // Temporal. Data Runs
-    // if(fname.Contains("17Jul")) { if (!(Run > 251243 && Run < 251563)) continue; } 
-    // if(fname.Contains("Prompt")){ if (!(Run > 251642 && Run < 251884)) continue; } 
 
+    // MCatNLO GEN Weights (For MC@NLO)
+    PUWeight = PUWeight * GENWeight;
     // Normalization Weight
-    float SF_PU[30];
-    SF_PU[0] = 0 ;
-    SF_PU[1] = 16.2542 ;
-    SF_PU[2] = 2.67671 ;
-    SF_PU[3] = 1.44832 ;
-    SF_PU[4] = 1.37474 ;
-    SF_PU[5] = 1.30396 ;
-    SF_PU[6] = 1.26069 ;
-    SF_PU[7] = 1.21222 ;
-    SF_PU[8] = 1.21157 ;
-    SF_PU[9] = 1.16039 ;
-    SF_PU[10] = 1.16793 ;
-    SF_PU[11] = 1.13483 ;
-    SF_PU[12] = 1.12599 ;
-    SF_PU[13] = 1.1097 ;
-    SF_PU[14] = 1.07286 ;
-    SF_PU[15] = 1.03166 ;
-    SF_PU[16] = 0.97997 ;
-    SF_PU[17] = 0.942812 ;
-    SF_PU[18] = 0.85897 ;
-    SF_PU[19] = 0.783565 ;
-    SF_PU[20] = 0.713898 ;
-    SF_PU[21] = 0.604078 ;
-    SF_PU[22] = 0.533567 ;
-    SF_PU[23] = 0.442721 ;
-    SF_PU[24] = 0.362524 ;
-    SF_PU[25] = 0.29544 ;
-    SF_PU[26] = 0.226351 ;
-    SF_PU[27] = 0.19971 ;
-    SF_PU[28] = 0.139236 ;
-    SF_PU[29] = 0.0696174 ;
-    
-    if(!fname.Contains("Data")) PUWeight = SF_PU[GoodPV]; // Temporal. PUWeight is not normalized to 1! No PUWeight!
-    else PUWeight = 1.0;
-    //TEMP PU Reweight
     PUWeight = PUWeight * NormWeight;
-
+    
     int NJets,NBtagJets;
     
     TLorentzVector Lep;
@@ -556,7 +580,11 @@ int main(int argc, const char* argv[]){
     if(NJets>3 && MET>30.0)                cut = 2; // + MET
     if(NJets>3 && MET>30.0 && NBtagJets>1) cut = 3; // + 2 Btag
 
-   
+    /***************************
+        ttbar Categorization
+     ***************************/
+    if (_ttbar_cat && !ttbar_category(ttbar_id, GenCat_ID))  cut = -1;
+
     /***************************
           Loop over cuts
     ***************************/
@@ -567,7 +595,7 @@ int main(int argc, const char* argv[]){
 	It shouldn't be applied to the central value. 
         It is divided over the <SF_pT> (normalization)  
       *************************************************************/
-      if(fname.Contains("TTbar")){	
+      if(fname.Contains("ttbar")){	
 	// // pT Top Reweight
 	// TLorentzVector t,tbar;
 	// t.SetPxPyPzE(tPx,tPy,tPz,tE);
@@ -637,7 +665,7 @@ int main(int argc, const char* argv[]){
       TTbar pT Reweight
   ***************************/
 
-  if(fname.Contains("TTbar")){
+  if(fname.Contains("ttbar")){
     
     for(int icut=0; icut<4;icut++){
       for(int ich=0; ich<2;ich++){
